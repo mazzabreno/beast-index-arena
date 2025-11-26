@@ -1,16 +1,35 @@
-# Node rules:
-## Grunt intermediate storage (http://gruntjs.com/creating-plugins#storing-task-files)
-.grunt
+# --- Dependencies (Too heavy to upload) ---
+node_modules/
+yarn-error.log
 
-## Dependency directory
-## Commenting this out is preferred by some people, see
-## https://docs.npmjs.com/misc/faq#should-i-check-my-node_modules-folder-into-git
-node_modules
+# --- Next.js / Frontend Build ---
+.next/
+out/
+build/
+dist/
 
-# Book build output
-_book
+# --- Solana / Anchor Build (Backend) ---
+# 'target' contains the compiled heavy binaries
+target/
+# '.anchor' contains local blockchain data
+.anchor/
+test-ledger/
 
-# eBook build output
-*.epub
-*.mobi
-*.pdf
+# --- Security & Secrets (NEVER UPLOAD THESE) ---
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Keypairs (Wallets/Private Keys)
+id.json
+*keypair.json
+wallet.json
+*.key
+
+# --- OS & Editor Files ---
+.DS_Store
+.vscode/
+.idea/
+Thumbs.db
