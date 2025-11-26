@@ -1,20 +1,22 @@
+Markdown
+
 # Beast Index Arena (MVP) ⚔️
 
 > **An autonomous on-chain battle simulation and prediction market built on Solana.**
 
 ## 📖 Overview
-**Beast Index Arena** is a fully autonomous auto-battler where four creatures fight automatically until only one remains. Players **never** influence the battle directly; instead, they interact through a **Prediction Market**, trading “Victory Shares” based purely on how the battle unfolds over time.
+**Beast Index Arena** is a fully autonomous auto-battler where four creatures fight automatically until only one remains. [cite_start]Players **never** influence the battle directly; instead, they interact through a **Prediction Market**, trading “Victory Shares” based purely on how the battle unfolds over time[cite: 3, 4, 5].
 
-The market observes—it does not interfere.
+[cite_start]The market observes—it does not interfere[cite: 53].
 
 ---
 
 ## ⚙️ How It Works
 
 ### 1. The Autonomous Battle (On-Chain Logic)
-The core game loop runs entirely via a "Crank" script that triggers transactions on the Solana blockchain at set intervals.
+[cite_start]The core game loop runs entirely via a "Crank" script that triggers transactions on the Solana blockchain at set intervals[cite: 23].
 
-* [cite_start]**Fairness:** All 4 creatures start with identical stats (ATK, DEF, SPD, HP)[cite: 3, 15].
+* [cite_start]**Fairness:** All 4 creatures start with identical stats (ATK, DEF, SPD, HP)[cite: 15].
 * [cite_start]**Visuals:** Only the skins differ; no balance considerations are needed[cite: 20, 21].
 * **RNG & Determinism:**
     * [cite_start]*Target & Move Selection:* Randomized on-chain[cite: 24, 26].
@@ -24,7 +26,7 @@ The core game loop runs entirely via a "Crank" script that triggers transactions
 ### 2. The Prediction Market (Parimutuel)
 [cite_start]Players speculate on the outcome by purchasing "Victory YES" shares of a specific creature[cite: 40].
 
-* [cite_start]**Speculation:** Players analyze turn logs, momentum, and unexpected RNG events to decide when to enter or exit positions[cite: 7, 8].
+* [cite_start]**Speculation:** Players analyze turn logs, momentum, and unexpected RNG events to decide when to enter or exit positions[cite: 8, 42].
 * **Settlement:** When the battle ends, backers of the winning creature split the pot.
     * [cite_start]Winning Share Value = **1.0**[cite: 50].
     * [cite_start]Losing Share Value = **0.0**[cite: 51].
@@ -85,3 +87,6 @@ Live Turn Logs: Players observe turn results and HP changes in real-time.
 Zero Interference: Trades never affect the battle outcome.
 
 Social Proof: Integrated sharing to post bets and battle updates to X (Twitter).
+
+📄 License
+MIT License
