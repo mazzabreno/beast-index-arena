@@ -13,8 +13,11 @@ pub mod beast_index_arena_contract {
         atk: u16,
         def: u16,
         spd: u16,
+        turn_interval: i64,
+        max_duration: i64,
     ) -> Result<()> {
         let battle = &mut ctx.accounts.battle_state;
+        let clock = Clock::get()?;
         battle.battle_id = battle_id;
         battle.authority = ctx.accounts.authority.key();
 
@@ -28,6 +31,12 @@ pub mod beast_index_arena_contract {
         battle.is_battle_over = false;
         battle.winner = None;
         battle.current_turn = 0;
+
+        battle.start_time = clock.unix_timestamp;
+        battle.last_turn_time = clock.unix_timestamp;
+        battle.turn_interval = turn_interval;
+        battle.max_duration = max_duration;
+
         battle.bump = ctx.bumps.battle_state;
 
         Ok(())
@@ -38,6 +47,20 @@ pub mod beast_index_arena_contract {
         let clock = &ctx.accounts.clock;
 
         require!(!battle.is_battle_over, GameError::BattleAlreadyOver);
+
+        let time_since_last_turn = clock.unix_timestamp - battle.last_turn_time;
+        require!(
+            time_since_last_turn >= battle.turn_interval,
+            GameError::TurnIntervalNotMet
+        );
+
+        let battle_duration = clock.unix_timestamp - battle.start_time;
+        if battle_duration > battle.max_duration {
+            battle.is_battle_over = true;
+            battle.winner = None;
+            msg!("⏰ Battle timed out after {} seconds!", battle_duration);
+            return Ok(());
+        }
 
         let mut creature_order: Vec<(usize, u16)> = Vec::new();
         for i in 0..4 {
@@ -110,8 +133,9 @@ pub mod beast_index_arena_contract {
             msg!("All creatures died! It's a draw!");
         }
 
-        battle.current_turn += 1;
+        battle.last_turn_time = clock.unix_timestamp;
 
+        battle.current_turn += 1;
         Ok(())
     }
 }
@@ -168,6 +192,21 @@ pub struct BattleState {
     pub winner: Option<u8>,
     pub current_turn: u64,
 
+    pub start_time: i64,
+    pub last_turn_time: i64,
+    pub turn_interval: i64,
+    pub max_duration: i64,
+
+    pub bump: u8,
+}
+
+#[account]
+pub struct TurnLog {
+    pub battle_id: u64,
+    pub turn_number: u64,
+    pub timestamp: i64,
+    pub attacks: [Attack; 4],
+    pub attack_count: u8,
     pub bump: u8,
 }
 
@@ -184,8 +223,41 @@ impl BattleState {
         + 1
         + 2
         + 8
+        + 8
+        + 8
+        + 8
+        + 8
         + 1
         + 100;
+}
+
+impl TurnLog {
+    pub const LEN: usize = 8 + 8 + 8 + 8 + (Attack::LEN * 4) + 1 + 1 + 50;
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug)]
+pub struct Attack {
+    pub attacker: u8,
+    pub target: u8,
+    pub ability: Ability,
+    pub damage: u16,
+    pub target_hp: u16,
+    pub target_died: bool,
+}
+
+impl Attack {
+    pub const LEN: usize = 1 + 1 + 1 + 2 + 2 + 1;
+
+    pub fn default() -> Self {
+        Self {
+            attacker: 0,
+            target: 0,
+            ability: Ability::BasicHit,
+            damage: 0,
+            target_hp: 0,
+            target_died: false,
+        }
+    }
 }
 
 fn get_random_seed(clock: &Clock, salt: u64) -> u64 {
@@ -244,4 +316,10 @@ fn calculate_damage(atk: u16, def: u16, ability: Ability) -> u16 {
 pub enum GameError {
     #[msg("Battle is already over")]
     BattleAlreadyOver,
+
+    #[msg("Turn interval not met - wait longer between turns")]
+    TurnIntervalNotMet,
+
+    #[msg("Battle has exceeded maximum duration")]
+    BattleDurationExceeded,
 }
