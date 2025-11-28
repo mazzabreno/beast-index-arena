@@ -64,15 +64,32 @@ pub mod beast_index_arena_contract {
             //     continue;
             // }
 
-            let damage = battle.creature_atk[attacker_idx]
-                .saturating_sub(battle.creature_def[target_idx])
-                .max(1);
+            // let damage = battle.creature_atk[attacker_idx]
+            //     .saturating_sub(battle.creature_def[target_idx])
+            //     .max(1);
+            let ability_seed = get_random_seed(clock, (attacker_idx + 100) as u64);
+            let ability = pick_random_ability(ability_seed);
+
+            let damage = calculate_damage(
+                battle.creature_atk[attacker_idx],
+                battle.creature_def[target_idx],
+                ability,
+            );
 
             battle.creature_hp[target_idx] = battle.creature_hp[target_idx].saturating_sub(damage);
 
+            msg!(
+                "   Creature {} uses {:?}! Attacks Creature {} for {} damage! HP: {}",
+                attacker_idx,
+                ability,
+                target_idx,
+                damage,
+                battle.creature_hp[target_idx]
+            );
+
             if battle.creature_hp[target_idx] == 0 {
                 battle.is_alive[target_idx] = false;
-                msg!("Creature {} died!", target_idx);
+                msg!("   💀 Creature {} died!", target_idx);
             }
         }
         let alive_creatures: Vec<usize> = battle
@@ -97,6 +114,13 @@ pub mod beast_index_arena_contract {
 
         Ok(())
     }
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq)]
+pub enum Ability {
+    BasicHit,
+    HeavyStrike,
+    QuickJab,
 }
 
 #[derive(Accounts)]
@@ -194,6 +218,26 @@ fn pick_random_target(
     let random_index = (random_seed as usize) % valid_targets.len();
 
     Some(valid_targets[random_index])
+}
+
+fn pick_random_ability(random_seed: u64) -> Ability {
+    let choice = random_seed % 3;
+    match choice {
+        0 => Ability::BasicHit,
+        1 => Ability::HeavyStrike,
+        2 => Ability::QuickJab,
+        _ => Ability::BasicHit,
+    }
+}
+
+fn calculate_damage(atk: u16, def: u16, ability: Ability) -> u16 {
+    let base_damage = atk.saturating_sub(def);
+    let modified_damage = match ability {
+        Ability::BasicHit => base_damage,
+        Ability::HeavyStrike => base_damage * 3 / 2,
+        Ability::QuickJab => base_damage * 3 / 4,
+    };
+    modified_damage.max(1)
 }
 
 #[error_code]
