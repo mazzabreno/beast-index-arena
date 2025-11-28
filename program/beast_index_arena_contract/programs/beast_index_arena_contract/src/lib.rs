@@ -15,7 +15,7 @@ pub mod beast_index_arena_contract {
     ) -> Result<()> {
         let battle = &mut ctx.accounts.battle_state;
         battle.battle_id = battle_id;
-        battle.authourity = ctx.accounts.authourity.key();
+        battle.authority = ctx.accounts.authority.key();
 
         battle.creature_hp = [hp, hp, hp, hp];
         battle.creature_atk = [atk, atk, atk, atk];
@@ -33,44 +33,36 @@ pub mod beast_index_arena_contract {
 
     pub fn execute_turn(ctx: Context<ExecuteTurn>) -> Result<()> {
         let battle = &mut ctx.accounts.battle_state;
+        let clock = &ctx.accounts.clock;
 
         require!(!battle.is_battle_over, GameError::BattleAlreadyOver);
-
-        let alive_count = battle.is_alive.iter().filter(|&&x| x).count();
 
         for attacker_idx in 0..4 {
             if !battle.is_alive[attacker_idx] {
                 continue;
             }
-            let target_idx = (attacker_idx + 1) % 4;
-            let mut actual_target_idx = target_idx;
-            let mut searched = 0;
-            while !battle.is_alive[actual_target_idx] && searched < 4 {
-                actual_target_idx = (actual_target_idx + 1) % 4;
-                searched += 1;
-            }
-            if !battle.is_alive[actual_target_idx] || actual_target_idx == attacker_idx {
-                continue;
-            }
+            let random_seed = get_random_seed(clock, attacker_idx as u64);
+            let target_idx = match pick_random_target(attacker_idx, &battle.is_alive, random_seed) {
+                Some(idx) => idx,
+                None => {
+                    msg!("Creature {} has no valid targets", attacker_idx);
+                    continue;
+                }
+            };
+
+            // if !battle.is_alive[target_idx] || target_idx == attacker_idx {
+            //     continue;
+            // }
 
             let damage = battle.creature_atk[attacker_idx]
-                .saturating_sub(battle.creature_def[actual_target_idx])
+                .saturating_sub(battle.creature_def[target_idx])
                 .max(1);
 
-            battle.creature_hp[actual_target_idx] =
-                battle.creature_hp[actual_target_idx].saturating_sub(damage);
+            battle.creature_hp[target_idx] = battle.creature_hp[target_idx].saturating_sub(damage);
 
-            msg!(
-                "Creature {} attacks Creature {} for {} damage! HP: {}",
-                attacker_idx,
-                actual_target_idx,
-                damage,
-                battle.creature_hp[actual_target_idx]
-            );
-
-            if (battle.creature_hp[actual_target_idx] == 0) {
-                battle.is_alive[actual_target_idx] = false;
-                msg!("Creature {} died!", actual_target_idx);
+            if battle.creature_hp[target_idx] == 0 {
+                battle.is_alive[target_idx] = false;
+                msg!("Creature {} died!", target_idx);
             }
         }
         let alive_creatures: Vec<usize> = battle
@@ -84,11 +76,11 @@ pub mod beast_index_arena_contract {
         if alive_creatures.len() == 1 {
             battle.is_battle_over = true;
             battle.winner = Some(alive_creatures[0] as u8);
-            msg!("🏆 Creature {} WINS!", alive_creatures[0]);
+            msg!("Creature {} WINS!", alive_creatures[0]);
         } else if alive_creatures.len() == 0 {
             battle.is_battle_over = true;
             battle.winner = None;
-            msg!("⚖️  All creatures died! It's a draw!");
+            msg!("All creatures died! It's a draw!");
         }
 
         battle.current_turn += 1;
@@ -102,7 +94,7 @@ pub mod beast_index_arena_contract {
 pub struct InitializeBattle<'info> {
     #[account(
         init,
-        payer= authourity,
+        payer= authority,
         space= BattleState::LEN,
         seeds= [b"battle", battle_id.to_le_bytes().as_ref()],
         bump
@@ -110,7 +102,7 @@ pub struct InitializeBattle<'info> {
     pub battle_state: Account<'info, BattleState>,
 
     #[account(mut)]
-    pub authourity: Signer<'info>,
+    pub authority: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -123,12 +115,13 @@ pub struct ExecuteTurn<'info> {
     )]
     pub battle_state: Account<'info, BattleState>,
     pub executer: Signer<'info>,
+    pub clock: Sysvar<'info, Clock>,
 }
 
 #[account]
 pub struct BattleState {
     pub battle_id: u64,
-    pub authourity: Pubkey,
+    pub authority: Pubkey,
 
     pub creature_hp: [u16; 4],
     pub creature_max_hp: [u16; 4],
@@ -145,7 +138,39 @@ pub struct BattleState {
 
 impl BattleState {
     pub const LEN: usize =
-        8 + 32 + (2 * 4) + (2 * 4) + (2 * 4) + (2 * 4) + 1 * 4 + 1 + 1 + 1 + 8 + 1 + 100;
+        8 + 8 + 32 + (2 * 4) + (2 * 4) + (2 * 4) + (2 * 4) + (1 * 4) + 1 + 2 + 8 + 1 + 100;
+}
+
+fn get_random_seed(clock: &Clock, salt: u64) -> u64 {
+    let slot = clock.slot;
+    let timestamp = clock.unix_timestamp as u64;
+
+    // Simple but effective randomness for MVP
+    slot.wrapping_mul(timestamp).wrapping_add(salt)
+}
+
+fn pick_random_target(
+    attacker_idx: usize,
+    is_alive: &[bool; 4],
+    random_seed: u64,
+) -> Option<usize> {
+    let mut valid_targets = Vec::new();
+    for i in 0..4 {
+        if i == attacker_idx {
+            continue;
+        }
+        if !is_alive[i] {
+            continue;
+        }
+        valid_targets.push(i);
+    }
+    if valid_targets.is_empty() {
+        return None;
+    }
+
+    let random_index = (random_seed as usize) % valid_targets.len();
+
+    Some(valid_targets[random_index])
 }
 
 #[error_code]
