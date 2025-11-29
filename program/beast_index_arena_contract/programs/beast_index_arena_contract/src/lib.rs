@@ -42,6 +42,23 @@ pub mod beast_index_arena_contract {
         Ok(())
     }
 
+    pub fn initialize_market(ctx: Context<InitializeMarket>, battle_id: u64) -> Result<()> {
+        let market = &mut ctx.accounts.market_state;
+        
+        market.battle_id = battle_id;
+        market.creature_0_pool = 0;
+        market.creature_1_pool = 0;
+        market.creature_2_pool = 0;
+        market.creature_3_pool = 0;
+        market.total_pool = 0;
+        market.is_settled = false;
+        market.bump = ctx.bumps.market_state;
+        
+        msg!("💰 Market initialized for battle {}", battle_id);
+        
+        Ok(())
+    }
+
     pub fn execute_turn(ctx: Context<ExecuteTurn>) -> Result<()> {
         let battle = &mut ctx.accounts.battle_state;
         let clock = &ctx.accounts.clock;
@@ -138,6 +155,49 @@ pub mod beast_index_arena_contract {
         battle.current_turn += 1;
         Ok(())
     }
+
+    pub fn place_bet(
+        ctx: Context<PlaceBet>,
+        creature_index: u8,
+        amount: u64,
+    ) -> Result<()> {
+        let market =&mut ctx.accounts.market_state;
+        let battle =&ctx.accounts.battle_state;
+        let position =&mut ctx.accounts.user_position;
+
+        require!(creature_index<4, GameError::InvalidCreatureIndex);
+        require!(!battle.is_battle_over, GameError::BattleAlreadyOver);
+        require!(amount >= 10_000_000, GameError::BetTooSmall);
+        require!(
+            battle.is_alive[creature_index as usize],
+            GameError::CreatureIsDead
+        );
+
+    let cpi_context = CpiContext::new(
+        ctx.accounts.system_program.to_account_info(),
+        anchor_lang::system_program::Transfer{
+            from: ctx.accounts.user.to_account_info(),
+            to: market.to_account_info(),
+        },
+    );
+    anchor_lang::system_program::transfer(cpi_context, amount)?;    
+        match creature_index {
+            0 => market.creature_0_pool += amount,
+            1 => market.creature_1_pool += amount,
+            2 => market.creature_2_pool += amount,
+            3 => market.creature_3_pool += amount,
+            _ => return Err(GameError::InvalidCreatureIndex.into()),
+        }
+        market.total_pool += amount;
+        position.user = ctx.accounts.user.key();
+        position.battle_id = battle.battle_id;
+        position.creature_index = creature_index;
+        position.amount = amount;
+        position.claimed = false;
+        position.bump = ctx.bumps.user_position;
+        Ok(())
+    }
+
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq)]
@@ -165,6 +225,24 @@ pub struct InitializeBattle<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(battle_id: u64)]
+pub struct InitializeMarket<'info> {
+    #[account(
+        init,
+        payer = authority,
+        space = MarketState::LEN,
+        seeds = [b"market", battle_id.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub market_state: Account<'info, MarketState>,
+    
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct ExecuteTurn<'info> {
     #[account(
         mut,
@@ -174,6 +252,41 @@ pub struct ExecuteTurn<'info> {
     pub battle_state: Account<'info, BattleState>,
     pub executer: Signer<'info>,
     pub clock: Sysvar<'info, Clock>,
+}
+
+#[derive(Accounts)]
+#[instruction(creature_index:u8, amount: u64)]
+pub struct PlaceBet<'info> {
+    #[account(
+        mut, 
+        seeds=[b"market", battle_state.battle_id.to_le_bytes().as_ref()],
+        bump = market_state.bump,
+    )]
+    pub market_state: Account<'info, MarketState>,
+
+    #[account(
+        seeds = [b"battle", battle_state.battle_id.to_le_bytes().as_ref()],
+        bump = battle_state.bump,
+    )]
+    pub battle_state: Account<'info, BattleState>,
+    #[account(
+        init,
+        payer = user,
+        space = UserPosition::LEN,
+        seeds = [
+            b"position",
+            battle_state.battle_id.to_le_bytes().as_ref(),
+            user.key().as_ref(),
+            &[creature_index]
+        ],
+        bump
+    )]
+    pub user_position: Account<'info, UserPosition>,
+    #[account(mut)]
+    pub user: Signer<'info>,
+    
+    pub system_program: Program<'info, System>,
+
 }
 
 #[account]
@@ -231,6 +344,39 @@ impl BattleState {
         + 100;
 }
 
+#[account]
+pub struct UserPosition {
+    pub user: Pubkey,
+    pub battle_id: u64,
+    pub creature_index: u8,
+    pub amount: u64,
+    pub claimed: bool,
+    pub bump: u8,
+}
+
+impl UserPosition {
+    pub const LEN: usize = 8 + 32 + 8 + 1 + 8 + 1 + 1 + 50;
+}
+
+#[account]
+pub struct MarketState {
+    pub battle_id: u64,
+
+    pub creature_0_pool: u64,
+    pub creature_1_pool: u64,
+    pub creature_2_pool: u64,
+    pub creature_3_pool: u64,
+
+    pub total_pool: u64,
+    pub is_settled: bool,
+
+    pub bump: u8,
+}
+
+impl MarketState {
+    pub const LEN: usize = 8 + 8 + 8 + 8 + 8 + 8 + 8 + 1 + 1 + 100;
+}
+
 impl TurnLog {
     pub const LEN: usize = 8 + 8 + 8 + 8 + (Attack::LEN * 4) + 1 + 1 + 50;
 }
@@ -264,7 +410,6 @@ fn get_random_seed(clock: &Clock, salt: u64) -> u64 {
     let slot = clock.slot;
     let timestamp = clock.unix_timestamp as u64;
 
-    // Simple but effective randomness for MVP
     slot.wrapping_mul(timestamp).wrapping_add(salt)
 }
 
@@ -322,4 +467,12 @@ pub enum GameError {
 
     #[msg("Battle has exceeded maximum duration")]
     BattleDurationExceeded,
+    #[msg("Invalid creature index (must be 0-3)")]
+    InvalidCreatureIndex,
+    
+    #[msg("Bet amount too small (minimum 0.01 SOL)")]
+    BetTooSmall,
+    
+    #[msg("Cannot bet on a dead creature")]
+    CreatureIsDead,
 }
