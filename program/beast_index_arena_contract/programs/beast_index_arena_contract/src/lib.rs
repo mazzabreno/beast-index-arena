@@ -42,7 +42,7 @@ pub mod beast_index_arena_contract {
         Ok(())
     }
 
-    pub fn initialize_market(ctx: Context<InitializeMarket>, battle_id: u64) -> Result<()> {
+    pub fn initialize_market(ctx: Context<InitializeMarket>, battle_id: u64, initial_liquidity: u64,) -> Result<()> {
         let market = &mut ctx.accounts.market_state;
         
         market.battle_id = battle_id;
@@ -52,9 +52,15 @@ pub mod beast_index_arena_contract {
         market.creature_3_pool = 0;
         market.total_pool = 0;
         market.is_settled = false;
+
+        market.creature_0_shares = initial_liquidity;
+        market.creature_1_shares = initial_liquidity;
+        market.creature_2_shares = initial_liquidity;
+        market.creature_3_shares = initial_liquidity;
+        market.k_constant = (initial_liquidity as u128).pow(2);
         market.bump = ctx.bumps.market_state;
         
-        msg!("💰 Market initialized for battle {}", battle_id);
+        msg!("Market initialized for battle {}", battle_id);
         
         Ok(())
     }
@@ -75,7 +81,7 @@ pub mod beast_index_arena_contract {
         if battle_duration > battle.max_duration {
             battle.is_battle_over = true;
             battle.winner = None;
-            msg!("⏰ Battle timed out after {} seconds!", battle_duration);
+            msg!("Battle timed out after {} seconds!", battle_duration);
             return Ok(());
         }
 
@@ -129,7 +135,7 @@ pub mod beast_index_arena_contract {
 
             if battle.creature_hp[target_idx] == 0 {
                 battle.is_alive[target_idx] = false;
-                msg!("   💀 Creature {} died!", target_idx);
+                msg!(" Creature {} died!", target_idx);
             }
         }
         let alive_creatures: Vec<usize> = battle
@@ -173,6 +179,19 @@ pub mod beast_index_arena_contract {
             GameError::CreatureIsDead
         );
 
+        let current_shares = match creature_index {
+            0 => market.creature_0_shares,
+            1 => market.creature_1_shares,
+            2 => market.creature_2_shares,
+            3 => market.creature_3_shares,
+            _ => return Err(GameError::InvalidCreatureIndex.into()),
+        };
+        let shares_bought = calculate_buy_shares(
+            current_shares,
+            amount,
+            market.k_constant,
+        )?;    
+
     let cpi_context = CpiContext::new(
         ctx.accounts.system_program.to_account_info(),
         anchor_lang::system_program::Transfer{
@@ -181,20 +200,155 @@ pub mod beast_index_arena_contract {
         },
     );
     anchor_lang::system_program::transfer(cpi_context, amount)?;    
+    match creature_index {
+        0 => {
+            market.creature_0_pool += amount;
+            market.creature_0_shares -= shares_bought;  
+        },
+        1 => {
+            market.creature_1_pool += amount;
+            market.creature_1_shares -= shares_bought;
+        },
+        2 => {
+            market.creature_2_pool += amount;
+            market.creature_2_shares -= shares_bought;
+        },
+        3 => {
+            market.creature_3_pool += amount;
+            market.creature_3_shares -= shares_bought;
+        },
+        _ => return Err(GameError::InvalidCreatureIndex.into()),
+    }
+    
+    market.total_pool += amount;
+    
+    position.user = ctx.accounts.user.key();
+    position.battle_id = battle.battle_id;
+    position.creature_index = creature_index;
+    position.amount = shares_bought; 
+    position.claimed = false;
+    position.bump = ctx.bumps.user_position;
+    
+    msg!(
+        "{} bought {} shares of Creature {} for {} lamports",
+        ctx.accounts.user.key(),
+        shares_bought,
+        creature_index,
+        amount
+    );
+    
+    let current_price = get_share_price(
         match creature_index {
-            0 => market.creature_0_pool += amount,
-            1 => market.creature_1_pool += amount,
-            2 => market.creature_2_pool += amount,
-            3 => market.creature_3_pool += amount,
+            0 => market.creature_0_pool,
+            1 => market.creature_1_pool,
+            2 => market.creature_2_pool,
+            3 => market.creature_3_pool,
+            _ => 0,
+        },
+        match creature_index {
+            0 => market.creature_0_shares,
+            1 => market.creature_1_shares,
+            2 => market.creature_2_shares,
+            3 => market.creature_3_shares,
+            _ => 0,
+        },
+    )?;
+    msg!("Current price per share: {}", current_price);
+    
+        Ok(())
+    }
+
+    pub fn sell_shares(
+        ctx: Context<SellShares>,
+        shares_to_sell: u64,
+    ) -> Result<()> {
+        let market = &mut ctx.accounts.market_state;
+        let battle = &ctx.accounts.battle_state;
+        let position = &mut ctx.accounts.user_position;
+        
+        require!(!battle.is_battle_over, GameError::BattleAlreadyOver);
+        
+        require!(
+            shares_to_sell <= position.amount,
+            GameError::InsufficientShares
+        );
+        
+        let creature_index = position.creature_index;
+        
+        let current_shares = match creature_index {
+            0 => market.creature_0_shares,
+            1 => market.creature_1_shares,
+            2 => market.creature_2_shares,
+            3 => market.creature_3_shares,
+            _ => return Err(GameError::InvalidCreatureIndex.into()),
+        };
+        
+        let sol_returned = calculate_sell_price(
+            current_shares,
+            shares_to_sell,
+            market.k_constant,
+        )?;
+        
+        let battle_id_bytes = battle.battle_id.to_le_bytes();
+        let seeds = &[
+            b"market",
+            battle_id_bytes.as_ref(),
+            &[market.bump],
+        ];
+        let signer = &[&seeds[..]];
+        
+        let transfer_ix = anchor_lang::solana_program::system_instruction::transfer(
+            &market.key(),
+            &ctx.accounts.user.key(),
+            sol_returned,
+        );
+        
+        anchor_lang::solana_program::program::invoke_signed(
+            &transfer_ix,
+            &[
+                market.to_account_info(),
+                ctx.accounts.user.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+            ],
+            signer,
+        )?;
+        
+        match creature_index {
+            0 => {
+                market.creature_0_pool -= sol_returned;
+                market.creature_0_shares += shares_to_sell;  
+            },
+            1 => {
+                market.creature_1_pool -= sol_returned;
+                market.creature_1_shares += shares_to_sell;
+            },
+            2 => {
+                market.creature_2_pool -= sol_returned;
+                market.creature_2_shares += shares_to_sell;
+            },
+            3 => {
+                market.creature_3_pool -= sol_returned;
+                market.creature_3_shares += shares_to_sell;
+            },
             _ => return Err(GameError::InvalidCreatureIndex.into()),
         }
-        market.total_pool += amount;
-        position.user = ctx.accounts.user.key();
-        position.battle_id = battle.battle_id;
-        position.creature_index = creature_index;
-        position.amount = amount;
-        position.claimed = false;
-        position.bump = ctx.bumps.user_position;
+        
+        market.total_pool -= sol_returned;
+        
+        position.amount -= shares_to_sell;
+        
+        if position.amount == 0 {
+            position.claimed = true;
+        }
+        
+        msg!(
+            "{} sold {} shares of Creature {} for {} lamports",
+            ctx.accounts.user.key(),
+            shares_to_sell,
+            creature_index,
+            sol_returned
+        );
+        
         Ok(())
     }
 
@@ -344,6 +498,40 @@ pub struct PlaceBet<'info> {
 }
 
 #[derive(Accounts)]
+pub struct SellShares<'info> {
+    #[account(
+        seeds = [b"battle", battle_state.battle_id.to_le_bytes().as_ref()],
+        bump = battle_state.bump,
+    )]
+    pub battle_state: Account<'info, BattleState>,
+    
+    #[account(
+        mut,
+        seeds = [b"market", battle_state.battle_id.to_le_bytes().as_ref()],
+        bump = market_state.bump,
+    )]
+    pub market_state: Account<'info, MarketState>,
+    
+    #[account(
+        mut,
+        seeds = [
+            b"position",
+            battle_state.battle_id.to_le_bytes().as_ref(),
+            user.key().as_ref(),
+            &[user_position.creature_index]
+        ],
+        bump = user_position.bump,
+        has_one = user,
+    )]
+    pub user_position: Account<'info, UserPosition>,
+    
+    #[account(mut)]
+    pub user: Signer<'info>,
+    
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
 pub struct ClaimWinnings<'info> {
     #[account(
         seeds = [b"battle", battle_state.battle_id.to_le_bytes().as_ref()],
@@ -457,11 +645,18 @@ pub struct MarketState {
     pub total_pool: u64,
     pub is_settled: bool,
 
+    pub creature_0_shares: u64,  
+    pub creature_1_shares: u64,
+    pub creature_2_shares: u64,
+    pub creature_3_shares: u64,
+    
+    pub k_constant: u128,
+
     pub bump: u8,
 }
 
 impl MarketState {
-    pub const LEN: usize = 8 + 8 + 8 + 8 + 8 + 8 + 8 + 1 + 1 + 100;
+    pub const LEN: usize = 8 + 8 + 8 + 8 + 8 + 8 + 8 + 1 + 8 + 8 + 8 + 8 + 16 + 1 + 100;
 }
 
 impl TurnLog {
@@ -544,6 +739,64 @@ fn calculate_damage(atk: u16, def: u16, ability: Ability) -> u16 {
     modified_damage.max(1)
 }
 
+fn calculate_buy_shares(
+    current_shares: u64,
+    sol_amount: u64,
+    k_constant: u128,
+) -> Result<u64> {
+   
+    let current_shares_u128 = current_shares as u128;
+    let sol_amount_u128 = sol_amount as u128;
+    
+    let new_shares = k_constant
+        .checked_div(current_shares_u128 + sol_amount_u128)
+        .ok_or(GameError::CalculationOverflow)?;
+    
+    let shares_bought = current_shares_u128
+        .checked_sub(new_shares)
+        .ok_or(GameError::CalculationOverflow)? as u64;
+    
+    Ok(shares_bought)
+}
+
+fn calculate_sell_price(
+    current_shares: u64,
+    shares_to_sell: u64,
+    k_constant: u128,
+) -> Result<u64> {
+    
+    let current_shares_u128 = current_shares as u128;
+    let shares_to_sell_u128 = shares_to_sell as u128;
+    
+    let new_pool = k_constant
+        .checked_div(current_shares_u128 + shares_to_sell_u128)
+        .ok_or(GameError::CalculationOverflow)?;
+    
+    let current_pool = k_constant
+        .checked_div(current_shares_u128)
+        .ok_or(GameError::CalculationOverflow)?;
+    
+    let sol_returned = current_pool
+        .checked_sub(new_pool)
+        .ok_or(GameError::CalculationOverflow)? as u64;
+    
+    Ok(sol_returned)
+}
+
+fn get_share_price(pool: u64, shares: u64) -> Result<u64> {
+    if shares == 0 {
+        return Ok(0);
+    }
+    
+    let price = (pool as u128)
+        .checked_mul(1_000_000_000) 
+        .ok_or(GameError::CalculationOverflow)?
+        .checked_div(shares as u128)
+        .ok_or(GameError::DivisionByZero)? as u64;
+    
+    Ok(price)
+}
+
 #[error_code]
 pub enum GameError {
     #[msg("Battle is already over")]
@@ -579,4 +832,7 @@ pub enum GameError {
     
     #[msg("Division by zero")]
     DivisionByZero,
+
+    #[msg("Insufficient shares to sell")]
+    InsufficientShares,
 }
