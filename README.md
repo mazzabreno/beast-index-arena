@@ -2,14 +2,14 @@
 
 > **An autonomous on-chain battle simulation and prediction market built on Solana.**
 
-## 📖 Overview
+## Overview
 **Beast Index Arena** is a fully autonomous auto-battler where four creatures fight automatically until only one remains. Players **never** influence the battle directly; instead, they interact through a **Prediction Market**, trading “Victory Shares” based purely on how the battle unfolds over time.
 
 The market observes—it does not interfere.
 
 ---
 
-## ⚙️ How It Works
+##  How It Works
 
 ### 1. The Autonomous Battle (On-Chain Logic)
 The core game loop runs entirely via a "Crank" script that triggers transactions on the Solana blockchain at set intervals.
@@ -31,7 +31,7 @@ Players speculate on the outcome by purchasing "Victory YES" shares of a specifi
 
 ---
 
-## 🏗️ Technical Architecture
+##  Technical Architecture
 
 This repository is organized as a **Monorepo**:
 
@@ -43,7 +43,7 @@ This repository is organized as a **Monorepo**:
 
 ---
 
-## 🚀 Getting Started
+##  Getting Started
 
 ### Prerequisites
 * Node.js (v18+)
@@ -74,7 +74,7 @@ Bash
 
 # From the root directory
 ts-node scripts/crank.ts
-🗺️ MVP Features
+MVP Features
 4 Unique Skins: Visual flavor with identical stats.
 
 Live Turn Logs: Players observe turn results and HP changes in real-time.
@@ -83,5 +83,5 @@ Zero Interference: Trades never affect the battle outcome.
 
 Social Proof: Integrated sharing to post bets and battle updates to X (Twitter).
 
-📄 License
+ License
 MIT License
