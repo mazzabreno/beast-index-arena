@@ -1,87 +1,108 @@
-# Beast Index Arena (MVP) ⚔️
+# Beast Index Arena - Smart Contract
 
-> **An autonomous on-chain battle simulation and prediction market built on Solana.**
+An autonomous on-chain battle simulation and prediction market built on Solana.
 
 ## Overview
-**Beast Index Arena** is a fully autonomous auto-battler where four creatures fight automatically until only one remains. Players **never** influence the battle directly; instead, they interact through a **Prediction Market**, trading “Victory Shares” based purely on how the battle unfolds over time.
 
-The market observes—it does not interfere.
+Beast Index Arena is a fully autonomous auto-battler where four creatures fight automatically until only one remains. Players interact through a prediction market, trading shares based on how the battle unfolds over time. The market observes but never influences the battle outcome.
 
----
+## System Flow
 
-##  How It Works
+The complete system consists of three components working together:
 
-### 1. The Autonomous Battle (On-Chain Logic)
-The core game loop runs entirely via a "Crank" script that triggers transactions on the Solana blockchain at set intervals.
+1. **Smart Contract** : Handles all battle logic, betting, and payouts on Solana
+2. **Bot Server**: Automatically creates new battles and executes turns every few seconds
+3. **Frontend**: Displays live battles and allows users to place bets
 
-* **Fairness:** All 4 creatures start with identical stats (ATK, DEF, SPD, HP).
-* **Visuals:** Only the skins differ; no balance considerations are needed.
-* **RNG & Determinism:**
-    * *Target & Move Selection:* Randomized on-chain.
-    * *Damage Calculation:* Deterministic (e.g., `Damage = max(1, ATK – DEF)`).
-* **Elimination:** When HP hits 0, the creature is instantly removed. The last standing wins.
+### How a Battle Works
 
-### 2. The Prediction Market (Parimutuel)
-Players speculate on the outcome by purchasing "Victory YES" shares of a specific creature.
+1. The bot initializes a new battle on-chain with 4 creatures
+2. The bot executes turns automatically (every 3-5 seconds)
+3. Each turn, the smart contract randomly selects an attacker and target, calculates damage
+4. Players watch the battle unfold and place bets on creatures they think will win
+5. When only one creature survives, the battle ends
+6. Winners can claim their share of the prize pool
+7. The bot starts a new battle and the cycle repeats
 
-* **Speculation:** Players analyze turn logs, momentum, and unexpected RNG events to decide when to enter or exit positions.
-* **Settlement:** When the battle ends, backers of the winning creature split the pot.
-    * Winning Share Value = **1.0**.
-    * Losing Share Value = **0.0**.
+All game logic happens on the blockchain - the bot simply triggers the transactions. This ensures fairness and transparency.
 
----
+### The Autonomous Battle
 
-##  Technical Architecture
+- **Fairness**: All 4 creatures start with identical stats (ATK, DEF, SPD, HP)
+- **Visuals**: Only the skins differ - Yeti, Mapinguari, Zmey, and Naga
+- **RNG & Determinism**:
+  - Target and move selection are randomized on-chain
+  - Damage calculation is deterministic (e.g., Damage = max(1, ATK - DEF))
+- **Elimination**: When HP hits 0, the creature is removed. The last one standing wins.
 
-This repository is organized as a **Monorepo**:
+### The Prediction Market (Parimutuel)
 
-| Component | Path | Description |
-| :--- | :--- | :--- |
-| **Program** | `/program` | **Rust/Anchor** Smart Contracts handling state, RNG, and betting logic. |
-| **Client** | `/app` | **Next.js** frontend for visualization and wallet interaction. |
-| **Crank** | `/scripts` | **Node.js** automation script that drives the battle forward. |
+Players speculate on the outcome by purchasing shares of a specific creature.
 
----
+- **Speculation**: Players analyze battle state, momentum, and RNG events to decide when to enter or exit positions
+- **Settlement**: When the battle ends, backers of the winning creature split the pot
+  - Winning share value: 1.0
+  - Losing share value: 0.0
 
-##  Getting Started
+## Technical Architecture
 
-### Prerequisites
-* Node.js (v18+)
-* Rust & Cargo
-* Solana CLI & Anchor
+This is the smart contract component of the Beast Index Arena system.
 
-### 1. Setup Smart Contract (Backend)
-```bash
-cd program
-# Install dependencies
-yarn install
-# Build the program
-anchor build
-# Run tests
-anchor test
-2. Setup Client (Frontend)
-Bash
+**Tech Stack**:
+- Solana blockchain (devnet)
+- Anchor framework (Rust)
+- On-chain RNG for target selection
+- Deterministic combat calculation
 
-cd app
-# Install dependencies
-npm install
-# Run local development server
-npm run dev
-3. Run the "Crank" (Automation)
-Note: In a production environment, this runs on a server. For testing, run it locally alongside the client.
+**Core Features**:
+- Battle state management (HP, stats, turn tracking)
+- Parimutuel betting market
+- Position tracking per user per creature
+- Winner settlement and payout distribution
+- Battle initialization and turn execution
 
-Bash
+## Program Structure
 
-# From the root directory
-ts-node scripts/crank.ts
-MVP Features
-4 Unique Skins: Visual flavor with identical stats.
+```
+program/
+└── beast_index_arena_contract/
+    ├── src/
+    │   ├── lib.rs           # Main program logic
+    │   ├── state/           # Account structures
+    │   └── instructions/    # Transaction handlers
+    └── Cargo.toml
+```
 
-Live Turn Logs: Players observe turn results and HP changes in real-time.
+## Key Instructions
 
-Zero Interference: Trades never affect the battle outcome.
+- `initialize_battle`: Creates a new battle with 4 creatures
+- `execute_turn`: Processes one combat turn (target selection, damage, elimination)
+- `place_bet`: Allows users to buy shares of a creature
+- `sell_shares`: Allows users to sell shares before battle ends
+- `claim_winnings`: Distributes payouts to winners after battle ends
+- `end_battle`: Marks battle as complete and determines winner
 
-Social Proof: Integrated sharing to post bets and battle updates to X (Twitter).
+## Battle Mechanics
 
- License
-MIT License
+1. Each creature has ATK, DEF, SPD, and HP stats
+2. Every turn, a random alive creature attacks another random alive target
+3. Damage is calculated as: max(1, attacker.ATK - target.DEF)
+4. When a creature's HP reaches 0, it is eliminated
+5. Battle continues until only one creature remains
+6. The last surviving creature is declared the winner
+
+## Market Mechanics
+
+- Players buy shares using SOL (minimum 0.01 SOL)
+- Share prices are dynamic based on total pool and creature pool
+- All bets go into a total pool
+- Winners receive proportional payout: (user_shares / winning_pool) * total_pool
+- Losers receive nothing (shares become worthless)
+
+## Development
+
+The contract is written in Rust using the Anchor framework and deployed on Solana devnet.
+
+## License
+
+MIT
