@@ -1,10 +1,28 @@
 use anchor_lang::prelude::*;
 
-declare_id!("28VkZmQABZWqq3gmossB41hYF9846gG2TWMyk4u6jTd4");
+declare_id!("H3EA4meFoepS9ZvufFg83ZJ3E6Ma98hQAbHhx64A9NoB");
 
 #[program]
 pub mod beast_index_arena_contract {
     use super::*;
+
+    pub fn initialize_global(ctx: Context<InitializeGlobal>) -> Result<()> {
+        let global_state = &mut ctx.accounts.global_state;
+        global_state.current_battle_id = 0;
+        global_state.authority = ctx.accounts.authority.key();
+        global_state.bump = ctx.bumps.global_state;
+        msg!("Global state initialized");
+        Ok(())
+    }
+  
+    pub fn update_current_battle(ctx: Context<UpdateCurrentBattle>, battle_id:
+     u64) -> Result<()> {
+        let global_state = &mut ctx.accounts.global_state;
+        global_state.current_battle_id = battle_id;
+        msg!("Current battle ID updated to: {}", battle_id);
+        Ok(())
+    }
+  
 
     pub fn initialize_battle(
         ctx: Context<InitializeBattle>,
@@ -398,6 +416,38 @@ pub struct InitializeBattle<'info> {
 }
 
 #[derive(Accounts)]
+pub struct InitializeGlobal<'info> {
+    #[account(
+        init,
+        payer = authority,
+        space = GlobalState::LEN,
+        seeds = [b"global"],
+        bump
+    )]
+    pub global_state: Account<'info, GlobalState>,
+
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateCurrentBattle<'info> {
+    #[account(
+        mut,
+        seeds = [b"global"],
+        bump = global_state.bump,
+        has_one = authority,
+    )]
+    pub global_state: Account<'info, GlobalState>,
+
+    pub authority: Signer<'info>,
+}
+
+
+
+#[derive(Accounts)]
 #[instruction(battle_id: u64)]
 pub struct InitializeMarket<'info> {
     #[account(
@@ -618,6 +668,17 @@ pub struct MarketState {
     pub k_constant: u128,
 
     pub bump: u8,
+}
+
+#[account]
+pub struct GlobalState {
+    pub current_battle_id: u64,
+    pub authority: Pubkey,
+    pub bump: u8,
+}
+
+impl GlobalState {
+    pub const LEN: usize = 8 + 8 + 32 + 1 + 50;
 }
 
 impl MarketState {
