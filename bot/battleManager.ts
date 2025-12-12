@@ -44,6 +44,31 @@ export class BattleManager {
         return pda;
     }
 
+    getGlobalPDA(): PublicKey {
+        const [pda] = PublicKey.findProgramAddressSync(
+            [Buffer.from("global")],
+            this.program.programId
+        );
+        return pda;
+    }
+
+    async updateCurrentBattle(battleId: number): Promise<void> {
+        try {
+            const globalPDA = this.getGlobalPDA();
+
+            await this.program.methods
+                .updateCurrentBattle(new anchor.BN(battleId))
+                .accounts({
+                    globalState: globalPDA,
+                    authority: this.provider.wallet.publicKey,
+                })
+                .rpc();
+
+            console.log(` Updated global state to battle #${battleId}`);
+        } catch (error: any) {
+            console.error(` Failed to update global state:`, error.message);
+        }
+    }
 
     async battleExists(battleId: number): Promise<boolean> {
         try {
@@ -198,9 +223,11 @@ export class BattleManager {
                     console.log(`\n Creating Battle #${this.currentBattleId}...`);
                     await this.initializeBattle(this.currentBattleId);
                     await this.initializeMarket(this.currentBattleId);
+                    await this.updateCurrentBattle(this.currentBattleId);
                     console.log(`\n Battle #${this.currentBattleId} ready for bets!`);
                 } else {
                     console.log(`\n Battle #${this.currentBattleId} already exists`);
+                    await this.updateCurrentBattle(this.currentBattleId);
                 }
 
                 await this.runBattle(this.currentBattleId);
